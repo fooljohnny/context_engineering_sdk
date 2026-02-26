@@ -65,6 +65,12 @@ from context_engineering_sdk.config import (
     RuntimeConfig,
 )
 from context_engineering_sdk.engine import DefaultContextEngine, create_context_engine
+from context_engineering_sdk.memory.user_memory_store import (
+    UserMemory,
+    UserMemoryStore,
+    InMemoryUserMemoryStore,
+)
+from context_engineering_sdk.memory.manager import MemoryManager
 
 __version__ = "0.1.0"
 
@@ -123,6 +129,11 @@ __all__ = [
     # Engine
     "DefaultContextEngine",
     "create_context_engine",
+    # Memory
+    "UserMemory",
+    "UserMemoryStore",
+    "InMemoryUserMemoryStore",
+    "MemoryManager",
     # Errors
     "ContextEngineError",
     "SessionNotFoundError",

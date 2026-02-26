@@ -259,6 +259,11 @@ class DefaultContextEngine:
 
         # 5. Derive blocks
         blocks = await self._deriver.derive(doc, evidences)
+
+        # 5b. Append extra context blocks (e.g. cross-session memory)
+        if cfg.extra_context_blocks:
+            blocks.extend(cfg.extra_context_blocks)
+
         new_block_ids = [b.block_id for b in blocks]
         await self._emit("BlocksDerived", session_id,
                          payload={"count": len(blocks)}, turn_id=turn_id)

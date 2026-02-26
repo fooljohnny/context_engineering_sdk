@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from context_engineering_sdk.core.redactor import RedactionRules
-from context_engineering_sdk.core.types import Priority
+from context_engineering_sdk.core.types import ContextBlock, Priority
 
 
 @dataclass
@@ -53,3 +53,4 @@ class RuntimeConfig:
     redaction: RedactionConfig = field(default_factory=RedactionConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     summary: SummaryConfig = field(default_factory=SummaryConfig)
+    extra_context_blocks: list[ContextBlock] = field(default_factory=list)

@@ -1,6 +1,6 @@
 # Context Engineering SDK 示例
 
-本目录包含 Context Engineering SDK 的完整示例集，涵盖基础用法和主流 Agent 框架集成。
+本目录包含 Context Engineering SDK 的完整示例集，涵盖基础用法和主流 AI Agent 框架集成。
 
 ## 示例列表
 
@@ -14,13 +14,20 @@
 | 持久化存储 | `memory_storage.py` | FileStore 磁盘持久化、跨进程恢复、MemoryStore vs FileStore 对比 |
 | 流式对话 | `streaming_conversation.py` | 流式 chunk 提交、消息合并、模型用量记录、事件监控 |
 
-### Agent 框架集成示例
+### Agent 框架集成示例（含跨会话记忆 + 长对话压缩）
 
-| 示例 | 文件 | 描述 |
+每个框架示例均包含以下完整功能：
+- **跨会话用户画像**：自动识别并持久化用户偏好（语言、风格、技术栈等）
+- **长期记忆**：通过 `MemoryManager` 在新会话中注入历史偏好和会话摘要
+- **长对话压缩**：当消息数超过阈值时自动触发 `Summarizer` 进行滚动摘要
+- **工具调用与证据溯源**：完整记录工具调用、RAG 检索、模型用量
+
+| 示例 | 文件 | 场景 |
 |------|------|------|
-| LangChain | `langchain_integration.py` | Callback 接入、RAG 检索证据化、工具调用记录、多轮 RAG 对话 |
-| AutoGen | `autogen_integration.py` | 多 Agent 消息归属、任务分解与归因、工具调用溯源 |
-| LlamaIndex | `llamaindex_integration.py` | Node/Document 证据化、检索记录、文档版本治理 |
+| LangChain | `langchain_integration.py` | 智能客服：8 轮对话（RAG + 工具 + 偏好检测 + 压缩）→ 跨会话验证 |
+| LangGraph | `langgraph_integration.py` | 技术助手：StateGraph 路由工作流（Router→Retriever→Tool→Generator）→ 跨会话验证 |
+| AutoGen | `autogen_integration.py` | 编程任务：多 Agent 协作（Planner→Researcher→Coder）+ 任务归因 → 跨会话验证 |
+| AgentScope | `agentscope_integration.py` | 数据分析：MsgHub 多 Agent（Coordinator→DataAnalyst→ReportWriter）→ 跨会话验证 |
 
 ## 运行方式
 
@@ -28,87 +35,69 @@
 # 安装 SDK
 pip install -e .
 
-# 运行任意示例
+# 运行基础示例
 python examples/basic_multi_turn.py
 python examples/tool_usage.py
 python examples/personalized_memory.py
 python examples/memory_storage.py
 python examples/streaming_conversation.py
+
+# 运行框架集成示例（含跨会话记忆 + 长对话压缩）
 python examples/langchain_integration.py
+python examples/langgraph_integration.py
 python examples/autogen_integration.py
-python examples/llamaindex_integration.py
+python examples/agentscope_integration.py
 ```
 
 所有示例使用 Mock 实现，无需外部依赖（无需 API Key），可直接运行。
 
-## 示例要点
+## 跨会话记忆架构
 
-### 多轮对话（basic_multi_turn.py）
-
-```python
-engine = create_context_engine(store, token_estimator, llm_adapter)
-
-# 每轮：prepare -> 调用 LLM -> commit
-result = await engine.prepare_turn(session_id, user_message, config)
-# ... 调用 LLM 获取回复 ...
-await engine.commit_assistant_message(session_id, assistant_message)
-```
-
-核心流程：`prepare_turn()` 内部自动完成消息追加、摘要检查、证据加载、块派生、裁剪和装配。
-
-### 工具调用（tool_usage.py）
-
-```python
-# 1. 工具结果作为证据入库
-evidence, _ = await ingestor.ingest(
-    session_id, content=tool_output,
-    source=EvidenceSource(kind=SourceKind.TOOL, name="getOrder"),
-    evidence_type=EvidenceType.TOOL_RESULT,
-    links=EvidenceLinks(tool_call_id=tc_id),
-)
-
-# 2. 记录工具调用元数据
-await engine.record_tool_call(session_id, tool_call)
-```
-
-### 个性化记忆（personalized_memory.py）
-
-```python
-# 偏好作为证据存储
-pref = await ingestor.ingest(session_id, "用户偏好中文", ...)
-
-# 构建 Memory Block 注入上下文
-memory_block = ContextBlock(
-    block_type=BlockType.MEMORY,
-    priority=Priority.HIGH,
-    content="用户偏好...",
-    refs=[Ref(evidence_id=pref.evidence_id)],
-)
-```
-
-### 流式对话（streaming_conversation.py）
-
-```python
-# 逐 chunk 提交
-async for chunk in llm.stream(assembled_input):
-    await engine.commit_assistant_chunk(session_id, chunk.text, chunk.index)
-
-# 合并为完整消息
-await engine.finalize_assistant_message(session_id)
-```
-
-### 框架集成模式
-
-所有框架集成遵循相同的适配模式：
-
-1. **Mapper** — 将框架对象映射为 CE SDK 类型
-2. **Recorder** — 在框架回调/钩子中调用 SDK 记录
-3. **Injector** — 将 `assembled_input` 注入框架的 LLM 调用
+框架集成示例使用 SDK 新增的 `memory/` 模块实现跨会话记忆：
 
 ```
-Framework Lifecycle ──┐
-                      ├──→ CE Adapter ──→ CE SDK Store
-                      │       ↑
-                      │       │ assembled_input
-                      └───────┘
+MemoryManager
+├── UserMemoryStore (Protocol)
+│   ├── InMemoryUserMemoryStore (测试用)
+│   └── FileUserMemoryStore (持久化)
+├── add_preference(user_id, category, content)    # 保存用户偏好
+├── add_user_fact(user_id, content)                # 保存用户画像
+├── add_session_summary(user_id, session_id, ...)  # 保存会话摘要
+└── build_memory_blocks(user_id)                   # 构建 ContextBlock 注入上下文
+```
+
+注入方式：通过 `RuntimeConfig.extra_context_blocks` 字段，在 `prepare_turn` 时
+将记忆块注入 Pipeline，无需修改 Engine 核心逻辑。
+
+## 每个框架示例的核心流程
+
+```
+Session 1 (多轮长对话)
+  ├── 用户消息中检测偏好 → MemoryManager.add_preference()
+  ├── 消息数超阈值 → Summarizer 自动压缩
+  ├── 工具调用 / RAG 检索 → Evidence 存证
+  └── 会话结束 → MemoryManager.add_session_summary()
+
+Session 2 (跨会话验证)
+  ├── MemoryManager.build_memory_blocks() → extra_context_blocks
+  ├── prepare_turn 注入记忆块到上下文
+  └── 验证：偏好 + 历史摘要 存在于 assembled_input 中
+```
+
+## 框架适配模式
+
+所有框架集成遵循统一的适配模式：
+
+1. **Adapter 类** — 将框架的生命周期事件映射为 CE SDK 操作
+2. **prepare_turn** — 注入跨会话记忆 + 偏好检测
+3. **工具/检索回调** — 通过 `EvidenceIngestor` 存证 + `record_tool_call` 记录
+4. **commit** — 提交助手回复并关联 evidence refs
+5. **Session 结束** — 保存会话摘要到 `MemoryManager`
+
+```
+Framework Lifecycle ──► CE Adapter ──► CE SDK Engine
+                            │                │
+                            ├─ MemoryManager ─┤ (cross-session)
+                            ├─ Ingestor ──────┤ (evidence)
+                            └─ EventBus ──────┘ (observability)
 ```

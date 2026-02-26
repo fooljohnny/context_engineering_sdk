@@ -57,6 +57,7 @@ graph TB
         B4["预算裁剪<br/>Token Pruning"]
         B5["渲染 & 组装<br/>Render & Assemble"]
         B6["可观测性<br/>Event Observability"]
+        B7["跨会话记忆<br/>MemoryManager"]
     end
 
     subgraph 基础设施层["基础设施层"]
@@ -77,8 +78,10 @@ graph TB
     B4 --> B5
     B5 -->|AssembledInput| A1
     B1 --> B6
+    B7 -->|extra_context_blocks| B3
 
     B1 --- C1
+    B7 --- C1
     B5 --- C2
     B2 --- C3
 ```
@@ -93,6 +96,7 @@ graph TB
 | 预算裁剪 | 按 must/high/medium/low 优先级和 token 预算进行贪心裁剪 | `Pruner.prune()` |
 | 渲染 & 组装 | 解析 refs、渲染证据片段、按类型分组组装为最终模型输入 | `Renderer` + `Assembler` |
 | 可观测性 | 通过 EventBus 发布结构化事件，支持审计、回放与排障 | `EventBus.emit()` |
+| 跨会话记忆 | 用户偏好/画像/会话摘要的跨会话持久化与注入 | `MemoryManager.build_memory_blocks()` |
 
 ---
 
@@ -143,6 +147,12 @@ graph TB
             EB["event_bus.py<br/>InMemoryEventBus"]
         end
 
+        subgraph MEM["memory/"]
+            direction LR
+            UMS["user_memory_store.py<br/>UserMemoryStore Protocol<br/>InMemory / File"]
+            MGR["manager.py<br/>MemoryManager"]
+        end
+
         subgraph INT["integrations/"]
             PLACEHOLDER["__init__.py<br/>框架适配器（预留）"]
         end
@@ -152,8 +162,10 @@ graph TB
     ENGINE --> STORE
     ENGINE --> OBS
     ENGINE --> CONFIG
+    ENGINE --> MEM
     BUILDER --> CORE
     STORE --> CORE
+    MEM --> CORE
 ```
 
 ### 3.2 核心类依赖关系
